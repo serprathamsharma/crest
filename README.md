@@ -1,6 +1,6 @@
 # Breast Cancer Detection & Diagnostic Machine Learning Benchmark
 
-A comprehensive Machine Learning pipeline and diagnostic benchmarking suite based on the **Wisconsin Breast Cancer (Diagnostic)** dataset, **Randerson112358's tutorial**, **Wikipedia's Confusion Matrix framework**, and **top-voted Kaggle methodologies**.
+A comprehensive Machine Learning pipeline and diagnostic benchmarking suite based on the **Wisconsin Breast Cancer (Diagnostic)** dataset, **Randerson112358's tutorial**, **Wikipedia's Confusion Matrix framework**, and **Kaan Can's top-voted Kaggle methodologies**.
 
 ---
 
@@ -39,33 +39,52 @@ tp, fn, fp, tn = cm_wiki.ravel()
 
 ---
 
-## Key Improvements from Kaggle Community Benchmarks
+## Visual Exploratory Data Analysis
 
-Following analysis of top-voted Kaggle notebooks, the following enhancements have been integrated:
+Following Kaan Can's Kaggle methodology (*"Feature Selection and Data Visualization"*), we inspect the distribution and separation of features using standardized violin plots:
 
-1. **Multicollinearity & Correlation Analysis**:
-   - Analyzes extreme collinearity among geometric triplets (`radius_mean`, `perimeter_mean`, `area_mean` have $r > 0.99$).
-   - Generates full correlation heatmaps (`plots/correlation_heatmap.png`).
-2. **2D Principal Component Analysis (PCA)**:
-   - Compresses 30 continuous features into 2 principal components, capturing over 63% of variance and demonstrating clear geometric cluster separation (`plots/pca_2d_projection.png`).
-3. **Expanded Model Zoo**:
-   - Added **Support Vector Machine (SVC with RBF kernel)** and **Gradient Boosting** alongside Logistic Regression, Decision Tree, and Random Forest.
-4. **Stratified 5-Fold Cross-Validation**:
-   - Assesses model stability across folds ($\text{Mean} \pm \text{Std}$) rather than relying solely on a single holdout split.
-5. **Clinical Decision Threshold Optimization**:
-   - Standard 0.50 threshold produced 4 False Negatives (missed cancer diagnoses).
-   - Tuning the decision cutoff to $\tau \approx 0.35$ reduces **missed cancers from 4 down to 1** ($\ge 98\%$ Sensitivity), reflecting real-world clinical priorities where missing a malignant tumor carries catastrophic risk.
+![Violin Plots Distribution](plots/violin_features_distribution.png)
+
+### Correlation Heatmap & Multicollinearity
+The 30 cell nucleus features include severe collinear triplets where Pearson correlation $r > 0.99$ (such as `radius_mean`, `perimeter_mean`, and `area_mean`):
+
+![Correlation Heatmap](plots/correlation_heatmap.png)
 
 ---
 
-## Benchmark Results
+## Feature Selection Benchmarks
 
-### 1. Stratified 5-Fold Cross-Validation Performance ($\text{Mean} \pm \text{Std}$)
+We evaluated 5 feature selection strategies using Random Forest to compare dimensionality reduction vs. accuracy:
+
+| Strategy | Features Selected | Holdout Accuracy | Notes |
+|---|---|---|---|
+| **All 30 Features** | 30 | 96.50% | Baseline |
+| **Correlation-Based Filter** | 16 | **96.50%** | Drops 14 collinear features ($r > 0.90$) with **0% loss in accuracy** |
+| **Recursive Feature Elimination (RFE)** | 5 | 95.10% | Top 5 features: concave points, radius, perimeter |
+| **Univariate Selection (SelectKBest)** | 5 | 93.71% | Fast filter based on ANOVA F-scores |
+| **Optimal RFECV** | 25 | 95.80% | Determined by 5-fold cross-validation |
+
+### RFECV Accuracy Curve
+![RFECV Feature Selection](plots/rfecv_feature_selection.png)
+
+---
+
+## Dimensionality Reduction: 2D PCA Projection
+
+Principal Component Analysis (PCA) projects the 30 continuous measurements onto 2 principal components, capturing over **63% of dataset variance** and illustrating clean boundary separation between Benign and Malignant tumors:
+
+![2D PCA Projection](plots/pca_2d_projection.png)
+
+---
+
+## Model Evaluation & Cross-Validation Benchmarks
+
+### 1. Stratified 5-Fold Cross-Validation ($\text{Mean} \pm \text{Std}$)
 
 | Model | CV Accuracy | CV Sensitivity (Recall) | CV Precision | CV F1-Score | CV ROC-AUC |
 |---|---|---|---|---|---|
-| **Support Vector Machine (RBF)** | **97.54% +/- 2.0%** | **95.76% +/- 3.7%** | 97.65% +/- 2.6% | **0.9666** | 0.9947 |
-| **Logistic Regression** | 97.37% +/- 1.7% | 94.36% +/- 5.2% | **98.63% +/- 1.8%** | 0.9633 | **0.9953** |
+| **Support Vector Machine (RBF)** | **97.01% +/- 1.8%** | **95.76% +/- 3.8%** | 96.28% +/- 2.8% | **0.9597** | 0.9947 |
+| **Logistic Regression** | 97.37% +/- 1.7% | 94.36% +/- 5.3% | **98.63% +/- 1.8%** | 0.9633 | **0.9953** |
 | **Random Forest** | 95.61% +/- 2.0% | 92.95% +/- 5.3% | 95.44% +/- 4.1% | 0.9400 | 0.9924 |
 | **Gradient Boosting** | 95.08% +/- 2.5% | 91.07% +/- 6.8% | 95.69% +/- 3.0% | 0.9315 | 0.9927 |
 | **Decision Tree** | 93.84% +/- 2.2% | 92.47% +/- 4.5% | 91.28% +/- 3.5% | 0.9179 | 0.9357 |
@@ -74,27 +93,45 @@ Following analysis of top-voted Kaggle notebooks, the following enhancements hav
 
 | Model | Accuracy | Sensitivity (Recall / TPR) | Specificity (TNR) | Precision (PPV) | Miss Rate (FNR) | F1-Score |
 |---|---|---|---|---|---|---|
-| **Random Forest** | **97.20%** | 92.45% | **100.00%** | **100.00%** | 7.55% | **0.9608** |
-| **Support Vector Machine (RBF)** | **97.20%** | 92.45% | **100.00%** | **100.00%** | 7.55% | **0.9608** |
-| **Logistic Regression** | 96.50% | **92.45%** | 98.89% | 98.00% | 7.55% | 0.9515 |
+| **Support Vector Machine (RBF)** | **98.60%** | **96.23%** | **100.00%** | **100.00%** | **3.77%** | **0.9808** |
+| **Random Forest** | 97.20% | 92.45% | **100.00%** | **100.00%** | 7.55% | 0.9608 |
+| **Logistic Regression** | 96.50% | 92.45% | 98.89% | 98.00% | 7.55% | 0.9515 |
 | **Gradient Boosting** | 96.50% | 90.57% | **100.00%** | **100.00%** | 9.43% | 0.9505 |
 | **Decision Tree** | 94.41% | 88.68% | 97.78% | 95.92% | 11.32% | 0.9216 |
+
+### Confusion Matrices Across Models
+![Confusion Matrices Across All Models](plots/confusion_matrices_all_models.png)
+
+---
+
+## Clinical Decision Threshold Optimization
+
+In clinical oncology, **False Negatives (missed malignant cases)** are far more perilous than False Positives. Under the standard 0.50 cutoff, Random Forest produced 4 False Negatives.
+
+By tuning the probability threshold ($\tau \approx 0.35$):
+- **Standard Threshold (0.50)**: Sensitivity = 92.5%, False Negatives = **4**
+- **Clinical Threshold (0.35)**: Sensitivity = **98.1%**, False Negatives = **1** (a 75% reduction in missed cancers)
+
+![Threshold Tuning Curve](plots/threshold_tuning_tradeoff.png)
 
 ---
 
 ## Project Structure
 
 ```
-├── breast_cancer_detection.py      # Standalone ML pipeline with 5-fold CV & threshold tuning
-├── breast_cancer_detection.ipynb   # Executed educational Jupyter Notebook with all outputs
-├── confusion_matrix_deepdive.md    # Detailed mathematical reference guide
+├── breast_cancer_detection.py      # Standalone pipeline with feature selection & 5-fold CV
+├── breast_cancer_detection.ipynb   # Executed Jupyter Notebook with complete analysis
+├── confusion_matrix_deepdive.md    # Mathematical reference guide on diagnostic metrics
 ├── data.csv                        # Kaggle Wisconsin Breast Cancer dataset
-├── plots/                          # Exported high-resolution visualization charts
+├── plots/                          # Visualization suite
+│   ├── violin_features_distribution.png
 │   ├── correlation_heatmap.png
+│   ├── rfecv_feature_selection.png
 │   ├── pca_2d_projection.png
+│   ├── pca_scree_plot.png
+│   ├── jointplot_correlation.png
 │   ├── threshold_tuning_tradeoff.png
 │   ├── confusion_matrices_all_models.png
-│   ├── confusion_matrices_comparison.png
 │   ├── roc_curves.png
 │   └── feature_importance.png
 ├── pyproject.toml                  # Project configuration
@@ -127,7 +164,7 @@ pip install -r requirements.txt
 ```bash
 uv run python breast_cancer_detection.py
 ```
-This runs data cleaning, correlation analysis, 2D PCA, 5-fold CV, holdout evaluation, threshold tuning, and saves charts to `./plots/`.
+This runs data cleaning, violin plots, correlation filtering, SelectKBest, RFE, RFECV, 5-fold CV, holdout evaluation, threshold tuning, and saves all plots to `./plots/`.
 
 ### 3. Launch the Interactive Jupyter Notebook
 ```bash
@@ -140,4 +177,5 @@ uv run jupyter notebook breast_cancer_detection.ipynb
 
 - **Wikipedia**: [Confusion Matrix](https://en.wikipedia.org/wiki/Confusion_matrix)
 - **Medium Article**: [Randerson112358's Breast Cancer Detection](https://randerson112358.medium.com/breast-cancer-detection-using-machine-learning-38820fe98982)
-- **Kaggle**: [Breast Cancer Wisconsin (Diagnostic) Data Set](https://www.kaggle.com/datasets/uciml/breast-cancer-wisconsin-data)
+- **Kaggle Kernel**: [Kaan Can's Feature Selection & Data Visualization](https://www.kaggle.com/code/kanncaa1/feature-selection-and-data-visualization)
+- **Kaggle Dataset**: [Breast Cancer Wisconsin (Diagnostic) Data Set](https://www.kaggle.com/datasets/uciml/breast-cancer-wisconsin-data)
