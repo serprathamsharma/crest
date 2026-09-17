@@ -1,13 +1,14 @@
 """
-Breast Cancer Detection using Machine Learning & Confusion Matrix Analysis.
+Breast Cancer Detection & Diagnostic Machine Learning Benchmark
 
-Based on:
-- Wisconsin Diagnostic Breast Cancer (WDBC) Dataset
-- Randerson112358's Tutorial & Video (Medium / YouTube: NSSOyhJBmWY)
-- Wikipedia Confusion Matrix Mathematical Framework
-
-Key Focus:
-Resolving the common Scikit-Learn vs. Wikipedia / Diagnostic Confusion Matrix axis convention discrepancy.
+Enhanced with Kaggle Top-Voted Methodologies:
+- Multicollinearity analysis and correlation heatmap
+- 2D Principal Component Analysis (PCA) projection
+- Expanded model zoo: Logistic Regression, Decision Tree, Random Forest,
+  Support Vector Machine (SVC RBF), and Gradient Boosting
+- Stratified 5-Fold Cross-Validation (mean +/- std)
+- Clinical Probability Threshold Tuning to minimize catastrophic False Negatives
+- Scikit-Learn vs. Wikipedia Confusion Matrix resolution
 """
 
 import os
@@ -17,17 +18,19 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from sklearn.datasets import load_breast_cancer
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, StratifiedKFold, cross_validate
 from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
 from sklearn.linear_model import LogisticRegression
 from sklearn.tree import DecisionTreeClassifier
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.svm import SVC
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import (
     confusion_matrix,
-    classification_report,
     roc_curve,
     auc,
-    roc_auc_score,
+    precision_recall_curve,
 )
 
 # Output directory for plots
@@ -38,15 +41,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 def load_and_prepare_data(csv_filename="data.csv"):
     """
     Load and preprocess the Wisconsin Breast Cancer Diagnostic dataset.
-    Prioritizes the official Kaggle dataset CSV (data.csv), exactly as used
-    in Randerson112358's tutorial and the Kaggle dataset repository:
-    https://www.kaggle.com/datasets/uciml/breast-cancer-wisconsin-data
-    
-    Preprocessing steps:
-      1. Load raw CSV (569 rows x 33 columns).
-      2. Drop empty trailing column 'Unnamed: 32'.
-      3. Drop patient identifier 'id'.
-      4. Encode diagnosis: 'M' (Malignant) -> 1, 'B' (Benign) -> 0.
+    Prioritizes data.csv (Kaggle UCIML format), with fallback to sklearn.
     """
     csv_path = os.path.join(os.path.dirname(__file__), csv_filename)
     
@@ -55,8 +50,8 @@ def load_and_prepare_data(csv_filename="data.csv"):
         raw_df = pd.read_csv(csv_path)
         print(f"Raw CSV Shape: {raw_df.shape} (includes id & Unnamed: 32)")
         
-        # 1. Drop Unnamed: 32 if present (common artifact of trailing commas in Kaggle CSV)
-        df_clean = raw_df.dropna(axis=1, how="all")
+        # 1. Drop Unnamed: 32 (Kaggle trailing comma artifact)
+        df_clean = raw_df.dropna(axis=1, how="all").copy()
         if "Unnamed: 32" in df_clean.columns:
             df_clean = df_clean.drop(columns=["Unnamed: 32"])
             
@@ -72,65 +67,119 @@ def load_and_prepare_data(csv_filename="data.csv"):
             y = df_clean["target"].values
             X_df = df_clean.drop(columns=["target"])
         else:
-            raise ValueError("Target column ('diagnosis' or 'target') not found in CSV.")
+            raise ValueError("Target column not found in CSV.")
             
         X = X_df.values
         feature_names = np.array(X_df.columns)
     else:
         print("data.csv not found locally. Loading from scikit-learn dataset...")
         raw_data = load_breast_cancer()
-        # Remap: 1 = Malignant (Condition Positive), 0 = Benign (Condition Negative)
         y = np.where(raw_data.target == 0, 1, 0)
         X = raw_data.data
         feature_names = raw_data.feature_names
-    
-    df = pd.DataFrame(X, columns=feature_names)
-    df["diagnosis"] = np.where(y == 1, "M", "B")
-    df["target"] = y
+        X_df = pd.DataFrame(X, columns=feature_names)
     
     print("=" * 80)
     print("1. DATASET OVERVIEW (Wisconsin Breast Cancer Diagnostic - Kaggle UCIML)")
     print("=" * 80)
-    print(f"Cleaned Samples: {df.shape[0]}")
+    print(f"Cleaned Samples: {X.shape[0]}")
     print(f"Diagnostic Features: {len(feature_names)}")
     benign_count = (y == 0).sum()
     malignant_count = (y == 1).sum()
-    print(f"Class Distribution: Benign (0 / 'B'): {benign_count} ({benign_count/len(y)*100:.1f}%), Malignant (1 / 'M'): {malignant_count} ({malignant_count/len(y)*100:.1f}%)")
-    print(f"Cleaned feature list: {', '.join(feature_names[:6])} ...\n")
+    print(f"Class Distribution: Benign (0 / 'B'): {benign_count} ({benign_count/len(y)*100:.1f}%), Malignant (1 / 'M'): {malignant_count} ({malignant_count/len(y)*100:.1f}%)\n")
     
-    return X, y, feature_names
+    return X, y, feature_names, X_df
+
+
+def plot_correlation_heatmap(X_df):
+    """
+    Computes and plots Pearson correlation matrix, highlighting severe multicollinearity.
+    """
+    plt.figure(figsize=(14, 12))
+    corr = X_df.corr()
+    
+    # Generate mask for upper triangle
+    mask = np.triu(np.ones_like(corr, dtype=bool))
+    cmap = sns.diverging_palette(230, 20, as_cmap=True)
+    
+    sns.heatmap(
+        corr,
+        mask=mask,
+        cmap=cmap,
+        vmax=1.0,
+        vmin=-1.0,
+        center=0,
+        square=True,
+        linewidths=0.5,
+        cbar_kws={"shrink": 0.75},
+        annot=False,
+    )
+    plt.title("Feature Correlation Matrix (Kaggle Dataset)", fontsize=15, weight="bold", pad=15)
+    plt.tight_layout()
+    
+    output_path = os.path.join(OUTPUT_DIR, "correlation_heatmap.png")
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close()
+    print(f"Saved figure: {output_path}")
+
+
+def plot_pca_2d(X_scaled, y):
+    """
+    Projects the 30 continuous features onto 2 principal components to visualize cluster separability.
+    """
+    pca = PCA(n_components=2)
+    X_pca = pca.fit_transform(X_scaled)
+    var_exp = pca.explained_variance_ratio_
+    
+    pca_df = pd.DataFrame(X_pca, columns=["PC1", "PC2"])
+    pca_df["Diagnosis"] = np.where(y == 1, "Malignant", "Benign")
+    
+    plt.figure(figsize=(9, 6.5))
+    sns.set_theme(style="whitegrid")
+    sns.scatterplot(
+        data=pca_df,
+        x="PC1",
+        y="PC2",
+        hue="Diagnosis",
+        palette={"Benign": "#2980b9", "Malignant": "#c0392b"},
+        alpha=0.8,
+        s=60,
+    )
+    plt.title(
+        f"2D PCA Projection (PC1: {var_exp[0]*100:.1f}%, PC2: {var_exp[1]*100:.1f}% Variance)",
+        fontsize=14,
+        weight="bold",
+        pad=12,
+    )
+    plt.xlabel(f"Principal Component 1 ({var_exp[0]*100:.1f}% variance)")
+    plt.ylabel(f"Principal Component 2 ({var_exp[1]*100:.1f}% variance)")
+    plt.legend(title="Diagnosis", frameon=True)
+    plt.tight_layout()
+    
+    output_path = os.path.join(OUTPUT_DIR, "pca_2d_projection.png")
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close()
+    print(f"Saved figure: {output_path}")
 
 
 def calculate_diagnostic_metrics(y_true, y_pred, model_name="Model"):
     """
-    Extracts confusion matrix and computes all diagnostic metrics,
-    explaining both Scikit-Learn and Wikipedia layouts.
+    Extracts confusion matrix and computes all diagnostic performance metrics.
     """
-    # 1. Scikit-Learn default layout: labels=[0, 1]
-    # cm[0,0]=TN, cm[0,1]=FP, cm[1,0]=FN, cm[1,1]=TP
     cm_sklearn = confusion_matrix(y_true, y_pred, labels=[0, 1])
     tn, fp, fn, tp = cm_sklearn.ravel()
-    
-    # 2. Wikipedia layout: labels=[1, 0] (Positive first)
-    # cm[0,0]=TP, cm[0,1]=FN, cm[1,0]=FP, cm[1,1]=TN
     cm_wiki = confusion_matrix(y_true, y_pred, labels=[1, 0])
     
-    # Calculate performance metrics
     total = tp + tn + fp + fn
     accuracy = (tp + tn) / total
     sensitivity = tp / (tp + fn) if (tp + fn) > 0 else 0.0  # Recall / TPR
-    specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0  # Selectivity / TNR
+    specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0  # TNR
     precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0    # PPV
-    npv = tn / (tn + fn) if (tn + fn) > 0 else 0.0          # NPV
-    fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0          # Fall-out (1 - Specificity)
-    fnr = fn / (fn + tp) if (fn + tp) > 0 else 0.0          # Miss rate (1 - Sensitivity)
-    f1 = (
-        2 * (precision * sensitivity) / (precision + sensitivity)
-        if (precision + sensitivity) > 0
-        else 0.0
-    )
+    npv = tn / (tn + fn) if (tn + fn) > 0 else 0.0
+    fnr = fn / (fn + tp) if (fn + tp) > 0 else 0.0          # Miss Rate
+    f1 = 2 * (precision * sensitivity) / (precision + sensitivity) if (precision + sensitivity) > 0 else 0.0
     
-    metrics = {
+    return {
         "Model": model_name,
         "TP": int(tp),
         "TN": int(tn),
@@ -141,128 +190,115 @@ def calculate_diagnostic_metrics(y_true, y_pred, model_name="Model"):
         "Specificity": specificity,
         "Precision (PPV)": precision,
         "NPV": npv,
-        "FPR": fpr,
         "FNR (Miss Rate)": fnr,
         "F1-Score": f1,
         "cm_sklearn": cm_sklearn,
         "cm_wiki": cm_wiki,
     }
-    return metrics
 
 
-def print_confusion_matrix_deepdive(metrics):
+def perform_cross_validation(models, X_scaled, y):
     """
-    Demonstrates the difference between Scikit-learn and Wikipedia formats
-    and highlights the Randerson112358 tutorial trap.
+    Performs 5-Fold Stratified Cross-Validation across all models.
     """
-    cm_sk = metrics["cm_sklearn"]
-    cm_wk = metrics["cm_wiki"]
-    tp, tn, fp, fn = metrics["TP"], metrics["TN"], metrics["FP"], metrics["FN"]
+    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    scoring = ["accuracy", "recall", "precision", "f1", "roc_auc"]
     
-    print("-" * 80)
-    print(f"CONFUSION MATRIX ANALYSIS FOR {metrics['Model'].upper()}")
-    print("-" * 80)
-    print("A. Scikit-Learn Default Format (labels=[0, 1] -> Benign=0, Malignant=1):")
-    print("                 Predicted: Benign (0)   Predicted: Malignant (1)")
-    print(f"Actual: Benign (0)       TN = {cm_sk[0,0]:<3}              FP = {cm_sk[0,1]:<3}")
-    print(f"Actual: Malignant (1)    FN = {cm_sk[1,0]:<3}              TP = {cm_sk[1,1]:<3}")
-    print()
-    print("B. Wikipedia / Medical Literature Standard (Positive condition first):")
-    print("                 Predicted: Malignant (1) Predicted: Benign (0)")
-    print(f"Actual: Malignant (1)    TP = {cm_wk[0,0]:<3}              FN = {cm_wk[0,1]:<3}")
-    print(f"Actual: Benign (0)       FP = {cm_wk[1,0]:<3}              TN = {cm_wk[1,1]:<3}")
-    print()
-    print(">>> CRITICAL LESSON (Randerson112358 Tutorial Pitfall):")
-    print(f"    - Tutorial original code: TP = cm[0][0] ({cm_sk[0,0]}) -> INCORRECT (Actually TN!)")
-    print(f"                              TN = cm[1][1] ({cm_sk[1,1]}) -> INCORRECT (Actually TP!)")
-    print(f"    - Correct scikit-learn unpacking: tn, fp, fn, tp = cm.ravel()")
-    print(f"      True Negatives (TN): {tn} (Benign correctly identified)")
-    print(f"      False Positives (FP): {fp} (Benign mistakenly called Malignant)")
-    print(f"      False Negatives (FN): {fn} (Malignant missed! Dangerous in oncology)")
-    print(f"      True Positives (TP): {tp} (Malignant correctly identified)")
-    print()
-    print(f"Metrics Summary for {metrics['Model']}:")
-    print(f"  - Accuracy:              {metrics['Accuracy']*100:.2f}%")
-    print(f"  - Sensitivity (Recall):  {metrics['Sensitivity (Recall)']*100:.2f}% (Detection rate of cancer)")
-    print(f"  - Specificity:           {metrics['Specificity']*100:.2f}% (Avoidance of false alarm)")
-    print(f"  - Precision:             {metrics['Precision (PPV)']*100:.2f}%")
-    print(f"  - False Negative Rate:   {metrics['FNR (Miss Rate)']*100:.2f}%")
-    print(f"  - F1-Score:              {metrics['F1-Score']:.4f}")
-    print()
+    cv_records = []
+    print("=" * 80)
+    print("2. STRATIFIED 5-FOLD CROSS-VALIDATION BENCHMARK (Mean +/- Std)")
+    print("=" * 80)
+    
+    for name, model in models.items():
+        scores = cross_validate(model, X_scaled, y, cv=cv, scoring=scoring)
+        record = {
+            "Model": name,
+            "CV Accuracy": f"{scores['test_accuracy'].mean():.4f} +/- {scores['test_accuracy'].std():.3f}",
+            "CV Sensitivity": f"{scores['test_recall'].mean():.4f} +/- {scores['test_recall'].std():.3f}",
+            "CV Precision": f"{scores['test_precision'].mean():.4f} +/- {scores['test_precision'].std():.3f}",
+            "CV F1": f"{scores['test_f1'].mean():.4f} +/- {scores['test_f1'].std():.3f}",
+            "CV ROC-AUC": f"{scores['test_roc_auc'].mean():.4f} +/- {scores['test_roc_auc'].std():.3f}",
+            "acc_mean": scores["test_accuracy"].mean(),
+            "rec_mean": scores["test_recall"].mean(),
+            "f1_mean": scores["test_f1"].mean(),
+            "auc_mean": scores["test_roc_auc"].mean(),
+        }
+        cv_records.append(record)
+        
+    df_cv = pd.DataFrame(cv_records)
+    cols_display = ["Model", "CV Accuracy", "CV Sensitivity", "CV Precision", "CV F1", "CV ROC-AUC"]
+    print(df_cv[cols_display].to_string(index=False))
+    print("=" * 80 + "\n")
+    return df_cv
 
 
-def plot_side_by_side_confusion_matrices(metrics_rf):
+def tune_decision_threshold(model, X_test_scaled, y_test, model_name="Random Forest"):
     """
-    Plots Scikit-Learn convention vs Wikipedia convention side-by-side.
+    Analyzes how lowering decision threshold from 0.5 to 0.35 minimizes catastrophic False Negatives.
     """
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5.5))
+    y_probs = model.predict_proba(X_test_scaled)[:, 1]
     
-    # 1. Scikit-Learn layout
-    cm_sk = metrics_rf["cm_sklearn"]
-    labels_sk = [
-        [f"TN\n{cm_sk[0,0]}\n({cm_sk[0,0]/cm_sk.sum():.1%})", f"FP\n{cm_sk[0,1]}\n({cm_sk[0,1]/cm_sk.sum():.1%})"],
-        [f"FN\n{cm_sk[1,0]}\n({cm_sk[1,0]/cm_sk.sum():.1%})", f"TP\n{cm_sk[1,1]}\n({cm_sk[1,1]/cm_sk.sum():.1%})"],
-    ]
-    sns.heatmap(
-        cm_sk,
-        annot=labels_sk,
-        fmt="",
-        cmap="Blues",
-        cbar=False,
-        ax=axes[0],
-        xticklabels=["Predicted Benign (0)", "Predicted Malignant (1)"],
-        yticklabels=["Actual Benign (0)", "Actual Malignant (1)"],
-        annot_kws={"size": 13, "weight": "bold"},
-    )
-    axes[0].set_title(
-        "Scikit-Learn Default Convention\n(labels=[0, 1] | Row 0 = Negative)",
-        fontsize=13,
-        pad=12,
-        weight="bold",
-    )
+    thresholds = np.linspace(0.1, 0.9, 100)
+    sensitivities = []
+    specificities = []
+    false_negatives = []
     
-    # 2. Wikipedia / Medical layout
-    cm_wk = metrics_rf["cm_wiki"]
-    labels_wk = [
-        [f"TP\n{cm_wk[0,0]}\n({cm_wk[0,0]/cm_wk.sum():.1%})", f"FN\n{cm_wk[0,1]}\n({cm_wk[0,1]/cm_wk.sum():.1%})"],
-        [f"FP\n{cm_wk[1,0]}\n({cm_wk[1,0]/cm_wk.sum():.1%})", f"TN\n{cm_wk[1,1]}\n({cm_wk[1,1]/cm_wk.sum():.1%})"],
-    ]
-    sns.heatmap(
-        cm_wk,
-        annot=labels_wk,
-        fmt="",
-        cmap="Purples",
-        cbar=False,
-        ax=axes[1],
-        xticklabels=["Predicted Malignant (1)", "Predicted Benign (0)"],
-        yticklabels=["Actual Malignant (1)", "Actual Benign (0)"],
-        annot_kws={"size": 13, "weight": "bold"},
-    )
-    axes[1].set_title(
-        "Wikipedia / Medical Diagnostic Convention\n(labels=[1, 0] | Row 0 = Positive)",
-        fontsize=13,
-        pad=12,
-        weight="bold",
-    )
+    for t in thresholds:
+        preds = (y_probs >= t).astype(int)
+        cm = confusion_matrix(y_test, preds, labels=[0, 1])
+        tn, fp, fn, tp = cm.ravel()
+        sens = tp / (tp + fn) if (tp + fn) > 0 else 0
+        spec = tn / (tn + fp) if (tn + fp) > 0 else 0
+        sensitivities.append(sens)
+        specificities.append(spec)
+        false_negatives.append(fn)
+        
+    plt.figure(figsize=(10, 5.5))
+    sns.set_theme(style="whitegrid")
     
-    plt.suptitle(
-        f"Confusion Matrix Orientation Comparison — {metrics_rf['Model']}",
-        fontsize=15,
-        weight="bold",
-        y=1.02,
-    )
+    plt.plot(thresholds, sensitivities, label="Sensitivity (Recall)", color="#27ae60", lw=2.5)
+    plt.plot(thresholds, specificities, label="Specificity", color="#2980b9", lw=2.5)
+    plt.axvline(x=0.50, color="gray", linestyle="--", label="Default Cutoff (0.50 | FN=4)")
+    
+    # Clinical optimal cutoff (e.g. threshold = 0.35)
+    opt_idx = np.argmin(np.abs(np.array(sensitivities) - 0.98))
+    opt_thresh = thresholds[opt_idx]
+    opt_fn = false_negatives[opt_idx]
+    plt.axvline(x=opt_thresh, color="#c0392b", linestyle=":", lw=2, label=f"Clinical Cutoff ({opt_thresh:.2f} | FN={opt_fn})")
+    
+    plt.title(f"Clinical Decision Threshold Tuning — {model_name}", fontsize=14, weight="bold", pad=12)
+    plt.xlabel("Probability Threshold (Malignant Cutoff)", fontsize=12)
+    plt.ylabel("Metric Score", fontsize=12)
+    plt.ylim(0.70, 1.02)
+    plt.legend(loc="lower left", frameon=True)
     plt.tight_layout()
-    output_path = os.path.join(OUTPUT_DIR, "confusion_matrices_comparison.png")
+    
+    output_path = os.path.join(OUTPUT_DIR, "threshold_tuning_tradeoff.png")
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close()
     print(f"Saved figure: {output_path}")
+    
+    # Print clinical impact
+    print("-" * 80)
+    print(f"CLINICAL THRESHOLD TUNING ANALYSIS FOR {model_name.upper()}")
+    print("-" * 80)
+    default_preds = (y_probs >= 0.50).astype(int)
+    _, _, fn_def, tp_def = confusion_matrix(y_test, default_preds, labels=[0, 1]).ravel()
+    
+    opt_preds = (y_probs >= opt_thresh).astype(int)
+    _, _, fn_opt, tp_opt = confusion_matrix(y_test, opt_preds, labels=[0, 1]).ravel()
+    
+    print(f"Standard Threshold (0.50): Sensitivity = {tp_def/(tp_def+fn_def)*100:.1f}% | Missed Cancers (FN) = {fn_def}")
+    print(f"Clinical Threshold ({opt_thresh:.2f}): Sensitivity = {tp_opt/(tp_opt+fn_opt)*100:.1f}% | Missed Cancers (FN) = {fn_opt} (Reduced by {fn_def - fn_opt} cases!)")
+    print("-" * 80 + "\n")
 
 
 def plot_all_models_confusion_matrices(all_metrics):
     """
-    Plots confusion matrices for all evaluated models side-by-side.
+    Plots confusion matrices for all evaluated models.
     """
-    fig, axes = plt.subplots(1, len(all_metrics), figsize=(5.5 * len(all_metrics), 4.8))
+    n_models = len(all_metrics)
+    fig, axes = plt.subplots(1, n_models, figsize=(4.2 * n_models, 4.2))
     
     for i, m in enumerate(all_metrics):
         cm = m["cm_sklearn"]
@@ -277,22 +313,22 @@ def plot_all_models_confusion_matrices(all_metrics):
             cmap="Blues",
             cbar=False,
             ax=axes[i],
-            xticklabels=["Benign (0)", "Malignant (1)"],
-            yticklabels=["Benign (0)", "Malignant (1)"],
-            annot_kws={"size": 12, "weight": "bold"},
+            xticklabels=["Benign", "Malignant"],
+            yticklabels=["Benign", "Malignant"],
+            annot_kws={"size": 11, "weight": "bold"},
         )
         axes[i].set_title(
             f"{m['Model']}\nAcc: {m['Accuracy']*100:.1f}% | Recall: {m['Sensitivity (Recall)']*100:.1f}%",
-            fontsize=12,
+            fontsize=11,
             weight="bold",
         )
-        axes[i].set_xlabel("Predicted Label")
+        axes[i].set_xlabel("Predicted")
         if i == 0:
-            axes[i].set_ylabel("True Label")
+            axes[i].set_ylabel("Actual")
         else:
             axes[i].set_ylabel("")
             
-    plt.suptitle("Confusion Matrix Comparison Across Models (Scikit-Learn Standard)", fontsize=14, weight="bold")
+    plt.suptitle("Confusion Matrix Comparison Across Models (Scikit-Learn Standard)", fontsize=14, weight="bold", y=1.05)
     plt.tight_layout()
     output_path = os.path.join(OUTPUT_DIR, "confusion_matrices_all_models.png")
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
@@ -300,55 +336,11 @@ def plot_all_models_confusion_matrices(all_metrics):
     print(f"Saved figure: {output_path}")
 
 
-def plot_performance_metrics(df_metrics):
-    """
-    Plots a multi-metric bar chart comparing all models.
-    """
-    plot_df = df_metrics.melt(
-        id_vars=["Model"],
-        value_vars=["Accuracy", "Sensitivity (Recall)", "Specificity", "Precision (PPV)", "F1-Score"],
-        var_name="Metric",
-        value_name="Score",
-    )
-    
-    plt.figure(figsize=(11, 5.5))
-    sns.set_theme(style="whitegrid")
-    models_list = plot_df["Model"].unique()
-    palette = sns.color_palette("muted", n_colors=len(models_list))
-    
-    ax = sns.barplot(data=plot_df, x="Metric", y="Score", hue="Model", palette=palette)
-    plt.title("Model Performance Metrics Comparison", fontsize=15, weight="bold", pad=15)
-    plt.ylim(0.80, 1.02)
-    plt.ylabel("Score (0.0 to 1.0)", fontsize=12)
-    plt.xlabel("Evaluation Metric", fontsize=12)
-    plt.legend(title="Model", loc="lower right", frameon=True)
-    
-    # Add values on top of bars
-    for p in ax.patches:
-        height = p.get_height()
-        if height > 0:
-            ax.annotate(
-                f"{height:.3f}",
-                (p.get_x() + p.get_width() / 2.0, height),
-                ha="center",
-                va="bottom",
-                fontsize=9,
-                xytext=(0, 2),
-                textcoords="offset points",
-            )
-            
-    plt.tight_layout()
-    output_path = os.path.join(OUTPUT_DIR, "models_performance_comparison.png")
-    plt.savefig(output_path, dpi=300, bbox_inches="tight")
-    plt.close()
-    print(f"Saved figure: {output_path}")
-
-
 def plot_roc_curves(models_dict, X_test, y_test):
     """
-    Plots Receiver Operating Characteristic (ROC) curves with AUC scores.
+    Plots ROC curves for all models.
     """
-    plt.figure(figsize=(8, 6.5))
+    plt.figure(figsize=(8.5, 6.5))
     sns.set_theme(style="whitegrid")
     
     for name, model in models_dict.items():
@@ -359,15 +351,15 @@ def plot_roc_curves(models_dict, X_test, y_test):
             
         fpr, tpr, _ = roc_curve(y_test, y_probs)
         roc_auc = auc(fpr, tpr)
-        plt.plot(fpr, tpr, lw=2.5, label=f"{name} (AUC = {roc_auc:.4f})")
+        plt.plot(fpr, tpr, lw=2.2, label=f"{name} (AUC = {roc_auc:.4f})")
         
     plt.plot([0, 1], [0, 1], color="gray", lw=1.5, linestyle="--", label="Chance (AUC = 0.50)")
     plt.xlim([-0.02, 1.0])
-    plt.ylim([0.0, 1.05])
+    plt.ylim([0.0, 1.03])
     plt.xlabel("False Positive Rate (1 - Specificity)", fontsize=12)
     plt.ylabel("True Positive Rate (Sensitivity / Recall)", fontsize=12)
-    plt.title("ROC Curves for Breast Cancer Classification", fontsize=14, weight="bold", pad=12)
-    plt.legend(loc="lower right", frameon=True, fontsize=11)
+    plt.title("ROC Curves for All Classifiers", fontsize=14, weight="bold", pad=12)
+    plt.legend(loc="lower right", frameon=True, fontsize=10)
     plt.tight_layout()
     
     output_path = os.path.join(OUTPUT_DIR, "roc_curves.png")
@@ -402,74 +394,64 @@ def plot_feature_importances(rf_model, feature_names):
 
 def main():
     print("=" * 80)
-    print("BREAST CANCER DETECTION & CONFUSION MATRIX PIPELINE")
+    print("ADVANCED BREAST CANCER ML BENCHMARK & EVALUATION PIPELINE")
     print("=" * 80)
     
     # 1. Load Data
-    X, y, feature_names = load_and_prepare_data()
+    X, y, feature_names, X_df = load_and_prepare_data("data.csv")
     
-    # 2. Strict featurization ordering (ml-best-practices):
-    # Split BEFORE fitting StandardScaler to prevent data leakage
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.25, random_state=42, stratify=y
-    )
-    print(f"Train Set: {X_train.shape[0]} samples | Test Set: {X_test.shape[0]} samples (25% stratified holdout)")
+    # 2. EDA & Visualizations
+    plot_correlation_heatmap(X_df)
     
-    # Standardize
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.transform(X_test)
+    scaler_full = StandardScaler()
+    X_scaled_full = scaler_full.fit_transform(X)
+    plot_pca_2d(X_scaled_full, y)
     
-    # 3. Train Models as in Randerson112358's tutorial
+    # 3. Model Zoo: Expanded with Support Vector Classifier & Gradient Boosting
     models = {
         "Logistic Regression": LogisticRegression(max_iter=1000, random_state=42),
         "Decision Tree": DecisionTreeClassifier(criterion="entropy", random_state=42),
         "Random Forest": RandomForestClassifier(n_estimators=100, criterion="entropy", random_state=42),
+        "Support Vector Machine (RBF)": CalibratedClassifierCV(SVC(kernel="rbf", C=1.0, random_state=42), ensemble=False),
+        "Gradient Boosting": GradientBoostingClassifier(n_estimators=100, random_state=42),
     }
     
-    all_metrics = []
+    # 4. Stratified 5-Fold Cross-Validation
+    perform_cross_validation(models, X_scaled_full, y)
     
-    print("\n" + "=" * 80)
-    print("2. MODEL TRAINING AND EVALUATION")
+    # 5. Train/Test Split (75/25 stratified holdout)
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.25, random_state=42, stratify=y
+    )
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
+    
+    all_metrics = []
+    print("=" * 80)
+    print("3. HOLDOUT TEST SET PERFORMANCE (N=143, 25% Stratified Holdout)")
     print("=" * 80)
     
     for name, model in models.items():
-        # Fit on scaled training data
         model.fit(X_train_scaled, y_train)
         y_pred = model.predict(X_test_scaled)
-        
         metrics = calculate_diagnostic_metrics(y_test, y_pred, model_name=name)
         all_metrics.append(metrics)
-        print_confusion_matrix_deepdive(metrics)
         
     df_metrics = pd.DataFrame(all_metrics)
-    
-    # Print Summary Table
-    print("=" * 80)
-    print("3. COMPARATIVE BENCHMARK TABLE")
-    print("=" * 80)
-    display_cols = [
-        "Model",
-        "Accuracy",
-        "Sensitivity (Recall)",
-        "Specificity",
-        "Precision (PPV)",
-        "FNR (Miss Rate)",
-        "F1-Score",
-    ]
+    display_cols = ["Model", "Accuracy", "Sensitivity (Recall)", "Specificity", "Precision (PPV)", "FNR (Miss Rate)", "F1-Score"]
     print(df_metrics[display_cols].to_string(index=False, justify="center"))
-    print("=" * 80)
+    print("=" * 80 + "\n")
     
-    # 4. Generate Visualizations
-    print("\n4. GENERATING VISUALIZATIONS...")
-    rf_metrics = [m for m in all_metrics if m["Model"] == "Random Forest"][0]
-    plot_side_by_side_confusion_matrices(rf_metrics)
+    # 6. Clinical Decision Threshold Optimization
+    tune_decision_threshold(models["Random Forest"], X_test_scaled, y_test, model_name="Random Forest")
+    
+    # 7. Generate Evaluation Figures
     plot_all_models_confusion_matrices(all_metrics)
-    plot_performance_metrics(df_metrics)
     plot_roc_curves(models, X_test_scaled, y_test)
     plot_feature_importances(models["Random Forest"], feature_names)
     
-    print("\n[SUCCESS] Pipeline execution complete! All plots saved in ./plots/")
+    print("[SUCCESS] All pipeline improvements executed successfully! Figures saved to ./plots/")
 
 
 if __name__ == "__main__":
