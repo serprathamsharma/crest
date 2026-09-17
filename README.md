@@ -1,10 +1,10 @@
-# 🔬 Breast Cancer Detection & Confusion Matrix Analysis
+# Breast Cancer Detection & Confusion Matrix Analysis
 
-A comprehensive Machine Learning pipeline and diagnostic benchmarking suite based on the **Wisconsin Breast Cancer (Diagnostic)** dataset, **Randerson112358's tutorial & video**, and **Wikipedia's Confusion Matrix framework**.
+A comprehensive Machine Learning pipeline and diagnostic benchmarking suite based on the **Wisconsin Breast Cancer (Diagnostic)** dataset, **Randerson112358's tutorial**, and **Wikipedia's Confusion Matrix framework**.
 
 ---
 
-## 📌 Background & The "Confusion Matrix Trap"
+## Background & The "Confusion Matrix Trap"
 
 In binary medical classification, evaluating predictive models requires analyzing **True Positives (TP)**, **True Negatives (TN)**, **False Positives (FP)**, and **False Negatives (FN)**.
 
@@ -19,7 +19,7 @@ However, developers frequently encounter a **subtle axis convention discrepancy*
   - Row 0 = Negative, Col 0 = Negative $\rightarrow$ `[0, 0] = True Negative (TN)` and `[1, 1] = True Positive (TP)`.
 
 ### 2. The Randerson112358 Tutorial Pitfall
-In Randerson112358's widely cited tutorial *"Breast Cancer Detection Using Python & Machine Learning"* (YouTube: `NSSOyhJBmWY`), the manual extraction code originally assigned:
+In Randerson112358's widely cited tutorial *"Breast Cancer Detection Using Python & Machine Learning"*, the manual extraction code originally assigned:
 ```python
 # The tutorial's initial code:
 TP = cm[0][0]  # Actually TN in scikit-learn!
@@ -39,7 +39,7 @@ tp, fn, fp, tn = cm_wiki.ravel()
 
 ---
 
-## 📊 Benchmark Results
+## Benchmark Results
 
 Evaluated on a 25% stratified test holdout ($N=143$: 90 Benign, 53 Malignant) from Kaggle's `data.csv`:
 
@@ -53,7 +53,7 @@ Evaluated on a 25% stratified test holdout ($N=143$: 90 Benign, 53 Malignant) fr
 
 ---
 
-## 📂 Project Structure
+## Project Structure
 
 ```
 ├── breast_cancer_detection.py      # Standalone, end-to-end ML pipeline
@@ -73,7 +73,7 @@ Evaluated on a 25% stratified test holdout ($N=143$: 90 Benign, 53 Malignant) fr
 
 ---
 
-## 🚀 Quickstart & Usage
+## Quickstart & Usage
 
 ### 1. Environment Setup
 Using [uv](https://github.com/astral-sh/uv) (recommended):
@@ -106,9 +106,8 @@ uv run jupyter notebook breast_cancer_detection.ipynb
 
 ---
 
-## 🔗 Referenced Resources
+## Referenced Resources
 
 - **Wikipedia**: [Confusion Matrix](https://en.wikipedia.org/wiki/Confusion_matrix)
 - **Medium Article**: [Randerson112358's Breast Cancer Detection](https://randerson112358.medium.com/breast-cancer-detection-using-machine-learning-38820fe98982)
-- **YouTube Video**: [Breast Cancer Detection Tutorial (`NSSOyhJBmWY`)](https://www.youtube.com/watch?v=NSSOyhJBmWY)
 - **Kaggle**: [Breast Cancer Wisconsin (Diagnostic) Data Set](https://www.kaggle.com/datasets/uciml/breast-cancer-wisconsin-data)
