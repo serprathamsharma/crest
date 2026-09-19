@@ -1,7 +1,7 @@
 [project]
 name = "crest"
 version = "0.1.0"
-description = "Add your description here"
+description = "Diagnostic machine learning benchmark, feature selection, and confusion matrix calibration for Wisconsin Breast Cancer dataset"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [

@@ -79,25 +79,28 @@ Principal Component Analysis (PCA) projects the 30 continuous measurements onto 
 
 ## Model Evaluation & Cross-Validation Benchmarks
 
-### 1. Stratified 5-Fold Cross-Validation ($\text{Mean} \pm \text{Std}$)
+### 1. Stratified 5-Fold Cross-Validation ($\text{Mean} \pm \text{Std}$, Leakage-Free Pipeline)
+
+> [!NOTE]
+> All models are evaluated inside an `sklearn.pipeline.Pipeline` with `StandardScaler` to ensure preprocessing parameters are fit strictly on training folds, avoiding data leakage into validation folds.
 
 | Model | CV Accuracy | CV Sensitivity (Recall) | CV Precision | CV F1-Score | CV ROC-AUC |
 |---|---|---|---|---|---|
-| **Support Vector Machine (RBF)** | **97.01% +/- 1.8%** | **95.76% +/- 3.8%** | 96.28% +/- 2.8% | **0.9597** | 0.9947 |
-| **Logistic Regression** | 97.37% +/- 1.7% | 94.36% +/- 5.3% | **98.63% +/- 1.8%** | 0.9633 | **0.9953** |
+| **Logistic Regression** | **97.37% +/- 1.7%** | 94.36% +/- 5.3% | **98.63% +/- 1.8%** | **0.9633** | **0.9953** |
+| **Support Vector Machine (RBF)** | 96.66% +/- 2.1% | **95.76% +/- 3.8%** | 95.45% +/- 3.7% | 0.9554 | 0.9945 |
 | **Random Forest** | 95.61% +/- 2.0% | 92.95% +/- 5.3% | 95.44% +/- 4.1% | 0.9400 | 0.9924 |
 | **Gradient Boosting** | 95.08% +/- 2.5% | 91.07% +/- 6.8% | 95.69% +/- 3.0% | 0.9315 | 0.9927 |
 | **Decision Tree** | 93.84% +/- 2.2% | 92.47% +/- 4.5% | 91.28% +/- 3.5% | 0.9179 | 0.9357 |
 
 ### 2. Holdout Test Set Performance ($N=143$, 25% Stratified Holdout)
 
-| Model | Accuracy | Sensitivity (Recall / TPR) | Specificity (TNR) | Precision (PPV) | Miss Rate (FNR) | F1-Score |
-|---|---|---|---|---|---|---|
-| **Support Vector Machine (RBF)** | **98.60%** | **96.23%** | **100.00%** | **100.00%** | **3.77%** | **0.9808** |
-| **Random Forest** | 97.20% | 92.45% | **100.00%** | **100.00%** | 7.55% | 0.9608 |
-| **Logistic Regression** | 96.50% | 92.45% | 98.89% | 98.00% | 7.55% | 0.9515 |
-| **Gradient Boosting** | 96.50% | 90.57% | **100.00%** | **100.00%** | 9.43% | 0.9505 |
-| **Decision Tree** | 94.41% | 88.68% | 97.78% | 95.92% | 11.32% | 0.9216 |
+| Model | Accuracy | Sensitivity (Recall / TPR) | Specificity (TNR) | Precision (PPV) | Miss Rate (FNR) | F1-Score | MCC |
+|---|---|---|---|---|---|---|---|
+| **Support Vector Machine (RBF)** | **98.60%** | **96.23%** | **100.00%** | **100.00%** | **3.77%** | **0.9808** | **0.9702** |
+| **Random Forest** | 97.20% | 92.45% | **100.00%** | **100.00%** | 7.55% | 0.9608 | 0.9408 |
+| **Gradient Boosting** | 96.50% | 90.57% | **100.00%** | **100.00%** | 9.43% | 0.9505 | 0.9263 |
+| **Logistic Regression** | 96.50% | 92.45% | 98.89% | 98.00% | 7.55% | 0.9515 | 0.9251 |
+| **Decision Tree** | 94.41% | 88.68% | 97.78% | 95.92% | 11.32% | 0.9216 | 0.8798 |
 
 ### Confusion Matrices Across Models
 ![Confusion Matrices Across All Models](plots/confusion_matrices_all_models.png)

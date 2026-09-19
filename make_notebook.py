@@ -2,14 +2,15 @@
 Programmatic generator for the comprehensive educational Jupyter Notebook: breast_cancer_detection.ipynb
 Combining:
 - Kaggle data ingestion & cleaning
-- Kaan Can's feature visualization suite (Standardized Violin Plots, Joint Plots)
+- Kaan Can's feature visualization suite (Standardized Violin Plots, Joint Plots, Correlation Heatmap)
 - 4 Feature Selection Methods: Correlation Filter, SelectKBest, RFE, RFECV
 - PCA Scree Plot & 2D Projection
-- 5-Fold Stratified Cross-Validation
+- Leakage-free 5-Fold Stratified Cross-Validation with Scikit-Learn Pipelines
 - Expanded model zoo: Logistic Regression, Decision Tree, Random Forest, SVM (RBF), Gradient Boosting
-- Confusion Matrix Scikit-Learn vs Wikipedia resolution
+- Confusion Matrix Scikit-Learn vs Wikipedia resolution & Matthews Correlation Coefficient (MCC)
 - Clinical Probability Threshold Tuning
 """
+import os
 import nbformat as nbf
 
 nb = nbf.v4.new_notebook()
@@ -30,15 +31,15 @@ cells.append(nbf.v4.new_markdown_cell("""# Breast Cancer Diagnostic Machine Lear
 In clinical cancer diagnostics, high accuracy alone is insufficient: models must be **statistically generalizable**, **explainable**, and **optimized for clinical cost asymmetry** (minimizing lethal false negatives).
 
 This benchmark implements:
-1. **Data Visualization**: Standardized Violin plots and joint regression to understand feature separation.
+1. **Data Visualization**: Standardized Violin plots, joint regression, and correlation heatmap to understand feature distributions and multicollinearity.
 2. **Feature Selection Methods**:
    - Correlation-based elimination (pruning $r > 0.90$ collinear features)
    - Univariate Selection (`SelectKBest`)
    - Recursive Feature Elimination (`RFE`)
    - Recursive Feature Elimination with Cross-Validation (`RFECV`)
 3. **Dimensionality Reduction**: PCA Scree and 2D projections.
-4. **Stratified 5-Fold Cross-Validation**: Testing 5 diverse algorithms (Logistic Regression, Decision Tree, Random Forest, Support Vector Machine, Gradient Boosting).
-5. **The Confusion Matrix Resolution**: Resolving Scikit-Learn's default `[0,0] = TN` orientation vs Wikipedia's `[0,0] = TP`.
+4. **Stratified 5-Fold Cross-Validation**: Testing 5 diverse algorithms (Logistic Regression, Decision Tree, Random Forest, Support Vector Machine, Gradient Boosting) using `Pipeline` to prevent data leakage.
+5. **The Confusion Matrix Resolution & MCC**: Resolving Scikit-Learn's default `[0,0] = TN` orientation vs Wikipedia's `[0,0] = TP` and evaluating Matthews Correlation Coefficient.
 6. **Clinical Probability Threshold Tuning**: Lowering decision thresholds to reduce **False Negatives from 4 to 1**."""))
 
 # Imports
@@ -49,6 +50,7 @@ import seaborn as sns
 
 from sklearn.model_selection import train_test_split, StratifiedKFold, cross_validate
 from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
 from sklearn.decomposition import PCA
 from sklearn.linear_model import LogisticRegression
 from sklearn.tree import DecisionTreeClassifier
@@ -63,7 +65,10 @@ from sklearn.metrics import (
     roc_curve,
     auc,
     accuracy_score,
+    matthews_corrcoef,
 )
+
+RANDOM_SEED = 42
 
 # Visual styling
 sns.set_theme(style="whitegrid")
@@ -94,7 +99,7 @@ print(f"Benign (0): {(y==0).sum()} | Malignant (1): {(y==1).sum()}")
 df.head()"""))
 
 # Section 2: Kaan Can's Visualization Suite
-cells.append(nbf.v4.new_markdown_cell("""### 2. Feature Visualization Suite (Violin Plots & Joint Plots)
+cells.append(nbf.v4.new_markdown_cell("""### 2. Feature Visualization Suite (Violin Plots, Joint Plots & Correlation Heatmap)
 
 Following Kaan Can's Kaggle methodology, we standardize the features and construct **split violin plots** with quartiles to observe which features cleanly separate malignant and benign distributions."""))
 
@@ -141,6 +146,31 @@ g.fig.suptitle("Joint Regression: Concavity Worst vs Concave Points Worst (r = 0
 plt.tight_layout()
 plt.show()"""))
 
+cells.append(nbf.v4.new_markdown_cell("""#### Correlation Heatmap & Multicollinearity
+The 30 cell nucleus features include severe collinear triplets where Pearson correlation $r > 0.99$ (such as `radius_mean`, `perimeter_mean`, and `area_mean`):"""))
+
+cells.append(nbf.v4.new_code_cell("""plt.figure(figsize=(14, 12))
+corr = X_df.corr()
+mask = np.triu(np.ones_like(corr, dtype=bool))
+cmap = sns.diverging_palette(230, 20, as_cmap=True)
+
+sns.heatmap(
+    corr,
+    mask=mask,
+    cmap=cmap,
+    vmax=1.0,
+    vmin=-1.0,
+    center=0,
+    square=True,
+    linewidths=0.5,
+    cbar_kws={"shrink": 0.75, "label": "Pearson Correlation (r)"},
+)
+plt.title("Correlation Heatmap: 30 Continuous Cell Nucleus Features", fontsize=14, weight="bold", pad=15)
+plt.xticks(rotation=45, ha="right", fontsize=8.5)
+plt.yticks(fontsize=8.5)
+plt.tight_layout()
+plt.show()"""))
+
 # Section 3: Feature Selection Suite
 cells.append(nbf.v4.new_markdown_cell("""### 3. Feature Selection Experiments (Kaan Can's 4 Methods)
 
@@ -151,7 +181,7 @@ We benchmark 4 distinct feature selection strategies using Random Forest:
 4. **RFECV**: Finding the optimal feature subset via 5-fold cross-validation."""))
 
 cells.append(nbf.v4.new_code_cell("""X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.25, random_state=42, stratify=y
+    X, y, test_size=0.25, random_state=RANDOM_SEED, stratify=y
 )
 
 scaler = StandardScaler()
@@ -159,7 +189,7 @@ X_train_scaled = scaler.fit_transform(X_train)
 X_test_scaled = scaler.transform(X_test)
 
 # Method 1: Baseline All 30 Features
-rf_base = RandomForestClassifier(n_estimators=100, random_state=42)
+rf_base = RandomForestClassifier(n_estimators=100, random_state=RANDOM_SEED)
 rf_base.fit(X_train_scaled, y_train)
 acc_all = accuracy_score(y_test, rf_base.predict(X_test_scaled))
 
@@ -171,7 +201,7 @@ drop_list_corr = [
     "concave points_se", "texture_worst", "area_worst"
 ]
 keep_indices = [i for i, f in enumerate(feature_names) if f not in drop_list_corr]
-rf_corr = RandomForestClassifier(n_estimators=100, random_state=42)
+rf_corr = RandomForestClassifier(n_estimators=100, random_state=RANDOM_SEED)
 rf_corr.fit(X_train_scaled[:, keep_indices], y_train)
 acc_corr = accuracy_score(y_test, rf_corr.predict(X_test_scaled[:, keep_indices]))
 
@@ -179,23 +209,23 @@ acc_corr = accuracy_score(y_test, rf_corr.predict(X_test_scaled[:, keep_indices]
 kbest = SelectKBest(score_func=f_classif, k=5)
 X_train_kb = kbest.fit_transform(X_train_scaled, y_train)
 X_test_kb = kbest.transform(X_test_scaled)
-rf_kb = RandomForestClassifier(n_estimators=100, random_state=42)
+rf_kb = RandomForestClassifier(n_estimators=100, random_state=RANDOM_SEED)
 rf_kb.fit(X_train_kb, y_train)
 acc_kb = accuracy_score(y_test, rf_kb.predict(X_test_kb))
 
 # Method 4: RFE (k=5)
-rfe = RFE(estimator=RandomForestClassifier(n_estimators=50, random_state=42), n_features_to_select=5, step=1)
+rfe = RFE(estimator=RandomForestClassifier(n_estimators=50, random_state=RANDOM_SEED), n_features_to_select=5, step=1)
 X_train_rfe = rfe.fit_transform(X_train_scaled, y_train)
 X_test_rfe = rfe.transform(X_test_scaled)
-rf_rfe = RandomForestClassifier(n_estimators=100, random_state=42)
+rf_rfe = RandomForestClassifier(n_estimators=100, random_state=RANDOM_SEED)
 rf_rfe.fit(X_train_rfe, y_train)
 acc_rfe = accuracy_score(y_test, rf_rfe.predict(X_test_rfe))
 
 # Method 5: RFECV (Optimal Feature Count)
 rfecv = RFECV(
-    estimator=RandomForestClassifier(n_estimators=50, random_state=42),
+    estimator=RandomForestClassifier(n_estimators=50, random_state=RANDOM_SEED),
     step=1,
-    cv=StratifiedKFold(5, shuffle=True, random_state=42),
+    cv=StratifiedKFold(5, shuffle=True, random_state=RANDOM_SEED),
     scoring="accuracy",
 )
 rfecv.fit(X_train_scaled, y_train)
@@ -227,10 +257,10 @@ plt.show()"""))
 cells.append(nbf.v4.new_markdown_cell("""### 4. Dimensionality Reduction: PCA Scree & 2D Projection"""))
 
 cells.append(nbf.v4.new_code_cell("""scaler_full = StandardScaler()
-X_scaled_full = scaler_full.fit_transform(X)
+X_std_all = scaler_full.fit_transform(X)
 
 pca = PCA()
-pca.fit(X_scaled_full)
+pca.fit(X_std_all)
 exp_var = pca.explained_variance_ratio_
 cum_var = np.cumsum(exp_var)
 
@@ -247,25 +277,65 @@ plt.title("PCA Scree Plot (Top 10 Components)", fontsize=13, weight="bold")
 plt.tight_layout()
 plt.show()"""))
 
-# Section 5: Stratified 5-Fold Cross-Validation Across 5 Classifiers
-cells.append(nbf.v4.new_markdown_cell("""### 5. Stratified 5-Fold Cross-Validation Across 5 Models
+cells.append(nbf.v4.new_markdown_cell("""#### 2D PCA Projection
+Principal Component Analysis (PCA) projects the 30 continuous measurements onto 2 principal components, capturing over **63% of dataset variance** and illustrating clean boundary separation between Benign and Malignant tumors:"""))
 
-We benchmark Logistic Regression, Decision Tree, Random Forest, Support Vector Machine (RBF), and Gradient Boosting."""))
+cells.append(nbf.v4.new_code_cell("""pca_2d = PCA(n_components=2, random_state=RANDOM_SEED)
+X_pca_2d = pca_2d.fit_transform(X_std_all)
+exp_var_2d = pca_2d.explained_variance_ratio_
+
+pca_df = pd.DataFrame({
+    "PC1": X_pca_2d[:, 0],
+    "PC2": X_pca_2d[:, 1],
+    "Diagnosis": np.where(y == 1, "Malignant", "Benign"),
+})
+
+plt.figure(figsize=(9, 6))
+sns.scatterplot(
+    data=pca_df,
+    x="PC1",
+    y="PC2",
+    hue="Diagnosis",
+    palette={"Benign": "#2980b9", "Malignant": "#c0392b"},
+    alpha=0.85,
+    s=60,
+    edgecolor="w",
+    linewidth=0.6,
+)
+plt.title(
+    f"2D PCA Projection (Captures {exp_var_2d.sum()*100:.1f}% Total Variance)",
+    fontsize=13,
+    weight="bold",
+)
+plt.xlabel(f"Principal Component 1 ({exp_var_2d[0]*100:.1f}% Explained Variance)")
+plt.ylabel(f"Principal Component 2 ({exp_var_2d[1]*100:.1f}% Explained Variance)")
+plt.legend(title="Diagnosis", frameon=True, loc="upper right")
+plt.tight_layout()
+plt.show()"""))
+
+# Section 5: Stratified 5-Fold Cross-Validation Across 5 Classifiers
+cells.append(nbf.v4.new_markdown_cell("""### 5. Stratified 5-Fold Cross-Validation Across 5 Models (Leakage-Free Pipeline)
+
+To strictly prevent data leakage between training and validation folds, each classifier is paired with `StandardScaler` inside a `Pipeline`. Scaling is calculated strictly on the training fold during each CV iteration."""))
 
 cells.append(nbf.v4.new_code_cell("""models = {
-    "Logistic Regression": LogisticRegression(max_iter=1000, random_state=42),
-    "Decision Tree": DecisionTreeClassifier(criterion="entropy", random_state=42),
-    "Random Forest": RandomForestClassifier(n_estimators=100, criterion="entropy", random_state=42),
-    "Support Vector Machine (RBF)": CalibratedClassifierCV(SVC(kernel="rbf", C=1.0, random_state=42), ensemble=False),
-    "Gradient Boosting": GradientBoostingClassifier(n_estimators=100, random_state=42),
+    "Logistic Regression": LogisticRegression(max_iter=1000, random_state=RANDOM_SEED),
+    "Decision Tree": DecisionTreeClassifier(criterion="entropy", random_state=RANDOM_SEED),
+    "Random Forest": RandomForestClassifier(n_estimators=100, criterion="entropy", random_state=RANDOM_SEED),
+    "Support Vector Machine (RBF)": CalibratedClassifierCV(SVC(kernel="rbf", C=1.0, random_state=RANDOM_SEED), ensemble=False),
+    "Gradient Boosting": GradientBoostingClassifier(n_estimators=100, random_state=RANDOM_SEED),
 }
 
-cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_SEED)
 scoring = ["accuracy", "recall", "precision", "f1", "roc_auc"]
 
 cv_results = []
 for name, model in models.items():
-    scores = cross_validate(model, X_scaled_full, y, cv=cv, scoring=scoring)
+    pipe = Pipeline([
+        ("scaler", StandardScaler()),
+        ("model", model),
+    ])
+    scores = cross_validate(pipe, X, y, cv=cv, scoring=scoring)
     cv_results.append({
         "Model": name,
         "CV Accuracy": f"{scores['test_accuracy'].mean()*100:.2f}% +/- {scores['test_accuracy'].std()*100:.2f}%",
@@ -281,7 +351,7 @@ df_cv"""))
 # Section 6: Holdout Evaluation & Confusion Matrix
 cells.append(nbf.v4.new_markdown_cell("""### 6. Holdout Test Set Performance & Confusion Matrix Resolution
 
-Let's inspect the holdout performance ($N=143$) and verify the correct Scikit-Learn confusion matrix layout (`[0,0] = TN`)."""))
+Let's inspect the holdout performance ($N=143$) and verify the correct Scikit-Learn confusion matrix layout (`[0,0] = TN`) alongside the Matthews Correlation Coefficient (MCC)."""))
 
 cells.append(nbf.v4.new_code_cell("""holdout_metrics = []
 predictions = {}
@@ -299,6 +369,7 @@ for name, model in models.items():
     prec = tp / (tp + fp) if (tp + fp) > 0 else 0
     fnr = fn / (fn + tp) if (fn + tp) > 0 else 0
     f1 = 2 * (prec * sens) / (prec + sens) if (prec + sens) > 0 else 0
+    mcc = matthews_corrcoef(y_test, y_pred)
     
     holdout_metrics.append({
         "Model": name,
@@ -308,6 +379,7 @@ for name, model in models.items():
         "Precision": prec,
         "Miss Rate (FNR)": fnr,
         "F1-Score": f1,
+        "MCC": mcc,
         "TP": tp,
         "TN": tn,
         "FP": fp,
@@ -315,7 +387,7 @@ for name, model in models.items():
     })
 
 df_holdout = pd.DataFrame(holdout_metrics)
-df_holdout[["Model", "Accuracy", "Sensitivity (Recall)", "Specificity", "Precision", "Miss Rate (FNR)", "F1-Score"]]"""))
+df_holdout[["Model", "Accuracy", "Sensitivity (Recall)", "Specificity", "Precision", "Miss Rate (FNR)", "F1-Score", "MCC"]]"""))
 
 cells.append(nbf.v4.new_markdown_cell("""Side-by-side confusion matrices for all 5 models:"""))
 
@@ -435,12 +507,14 @@ cells.append(nbf.v4.new_markdown_cell("""## 9. Final Conclusions & Key Takeaways
    - 5 features selected by `SelectKBest` achieved over 93.7% accuracy, confirming that nucleus size and concavity contain the bulk of diagnostic signal.
 2. **Top Model Performance**:
    - **Support Vector Machine (RBF)** delivered the strongest holdout results: **98.60% Accuracy**, **96.23% Sensitivity**, and **100% Specificity**.
-3. **Clinical Threshold Tuning**:
+3. **Leakage-Free Cross Validation**:
+   - Pipeline encapsulation ensures preprocessors strictly learn parameters on training folds only.
+4. **Clinical Threshold Tuning**:
    - Tuning decision cutoffs to prioritize Sensitivity reduces fatal False Negatives down to $\\le 1$."""))
 
 nb.cells = cells
 
-notebook_path = "breast_cancer_detection.ipynb"
+notebook_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "breast_cancer_detection.ipynb")
 with open(notebook_path, "w", encoding="utf-8") as f:
     nbf.write(nb, f)
 
